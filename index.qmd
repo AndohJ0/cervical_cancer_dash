@@ -1,5 +1,6 @@
 ---
-title: "Final Project"
+title: "Cervical Cancer Burden Dashboard"
+author: "John Andoh"
 format: dashboard
 theme: cyborg
 ---
