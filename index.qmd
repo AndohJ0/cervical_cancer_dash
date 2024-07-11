@@ -1,0 +1,226 @@
+---
+title: "Final Project"
+format: dashboard
+theme: cyborg
+---
+
+
+```{r}
+# Required packages
+
+pacman::p_load(tidyverse,
+               here,
+               plotly,
+               reactable,
+               bslib, 
+               bsicons,
+               shiny,
+               gapminder,
+               rnaturalearth,
+               countrycode,
+               htmltools,
+               reactable,
+               highcharter,
+               WDI)
+```
+
+```{r}
+#read in data
+
+cc_incidence <- read_csv(here("data/cervical_cancer_new_cases_per_100000_women.csv")) %>% 
+  mutate_all(as.factor) %>% 
+  mutate(country_iso = countrycode(country, 
+                                   "country.name", 
+                                   "iso3c")) %>% 
+  select(country,country_iso, matches("^(199[0-9]|200[0-9]|201[0-9])$")) 
+  
+
+cc_deaths <- read_csv(here("data/cervical_cancer_deaths_per_100000_women.csv")) %>% 
+  mutate_all(as.factor) %>% 
+  mutate(country_iso = countrycode(country, 
+                                   "country.name", 
+                                   "iso3c")) %>% 
+  select(country,country_iso, matches("^(199[0-9]|200[0-9]|201[0-9])$")) 
+
+world_econ_data <- WDI(country = "all") %>% 
+  filter(year == 2019)
+
+# view data structure
+
+#glimpse(cc_incidence) # countries are characters and years are dbl numbers
+#glimpse(cc_deaths)
+
+```
+
+```{r}
+world <- ne_countries()
+
+cc_incidence_2019 <- cc_incidence %>% 
+  left_join(world, by = c("country_iso" = "adm0_a3")) %>%
+  left_join(world_econ_data, by = c("country_iso" = "iso3c")) %>% 
+  rename(incidence = "2019", country = country.x) %>% 
+  mutate(incidence = as.numeric(incidence)) %>% 
+  select(country, country_iso, incidence, geometry)
+
+cc_deaths_2019 <- cc_deaths %>% 
+  left_join(world,
+            by = c("country_iso" = "adm0_a3")) %>%
+  mutate(deaths = as.numeric(as.character(`2019`))) %>% 
+  select(country, country_iso, deaths, geometry)
+ 
+cc_burden_data_world_2019 <- cc_incidence_2019 %>% 
+  left_join(cc_deaths_2019)
+
+cc_incidence_2019_plot <- cc_burden_data_world_2019 %>% 
+  select(country, country_iso, incidence, geometry) %>%
+  mutate(tooltip_label = paste(country, round(incidence, 0), sep = ": ")) %>%
+  ggplot() +
+  geom_sf(aes(fill = incidence, geometry = geometry), text = "tooltip_label") +
+  theme_void() +
+  scale_fill_continuous(low = "#c6f2f7", high = "#020266",
+                        name = "Rate per \n100,000 women",
+                        breaks = c(5, 10, 15,50,100,150, 174),
+                        labels = c("<5", "5-10", "10-15", "15-50", "50-100", "100-150", "≤150")
+                        ) +
+  guides(fill = guide_legend(title.position = "top", 
+                             title.hjust = 0.5, 
+                             label.position = "right", 
+                             keywidth = 0.4, 
+                             keyheight = 0.6,
+                             default.unit = "cm")) 
+
+
+cc_deaths_2019_plot <- cc_burden_data_world_2019  %>% 
+  mutate(tooltip_label = paste(country,
+                               round(deaths),
+                               sep = ": ")) %>% 
+  ggplot() +
+  geom_sf(aes(fill = deaths, geometry = geometry), text = "tooltip_label") +
+  theme_void() +
+  scale_fill_continuous(low = "yellow", high = "#70110a",
+                        name = "Rate per \n100,000 women",
+                        breaks = c(2, 5, 10,15,20,30,50,70),
+                        labels = c("<2", "2-5", "5-10", "10-15", "15-20", "20-30","30-50","≥50")
+                        ) +
+  guides(fill = guide_legend(title.position = "top", 
+                             title.hjust = 0.5, 
+                             label.position = "right", 
+                             keywidth = 0.4, 
+                             keyheight = 0.6,
+                             default.unit = "cm"))
+```
+
+```{r}
+cc_incidence_2019 <- cc_incidence %>% 
+  left_join(world_econ_data,
+            by = c("country_iso" = "iso3c")) %>%
+  rename(incidence = "2019",
+         GDP = "NY.GDP.PCAP.KD",
+         country = country.x) %>% 
+  mutate(incidence = as.numeric(incidence)) %>% 
+  select(country, country_iso, incidence, GDP) %>% 
+  mutate(econ_status = case_when(
+    as.numeric(GDP) >= 13845 ~ "High income",
+    as.numeric(GDP) < 13845 & as.numeric(GDP) >= 4256 ~ "Upper middle income",
+    as.numeric(GDP) < 4256 & as.numeric(GDP) >= 1086 ~ "Lower middle income",
+    TRUE ~ "Low income")) %>% 
+  group_by(econ_status) %>% 
+  summarize(mean_incidence = mean(incidence, na.rm = TRUE))
+
+high_inc <- cc_incidence_2019 %>% 
+  filter(econ_status == "High income") %>% 
+  pull(mean_incidence) %>% 
+  round(0)
+
+low_inc <- cc_incidence_2019 %>% 
+  filter(econ_status == "Low income") %>% 
+  pull(mean_incidence) %>% 
+  round(0)
+  
+
+```
+
+
+# HOME
+
+## Row 1 {height=15%}
+
+
+`In its 2021 report, the World Health Organization (WHO) set a goal for the worldwide eradication of cervical cancer by the year 2030, providing a set of screening guidelines to aid countries in this endeavor. However, the burden of cervical cancer remains unevenly distributed across the globe, with low- and middle-income nations bearing the heaviest load.` 
+Source: [IARC](https://gco.iarc.fr/overtime/)
+
+
+## Row 2 {height=30%}
+
+```{r}
+value_box(
+  title = "Average Cervical Cancer Incidence in high income countries",
+  value = high_inc,
+  showcase = bsicons::bs_icon("cash-stack"),
+  theme = "bg-indigo"
+)
+```
+
+```{r}
+value_box(
+  title = "Average Cervical Cancer Incidence in low income countries",
+  value = low_inc,
+  showcase = bsicons::bs_icon("cash"),
+  theme = "teal"
+)
+```
+
+## Row 3
+
+```{r title = "Age standardised incidence rate of cervical cancer 2019"}
+cc_incidence_2019_plot
+```
+```{r title = "Age standardised mortality rate of cervical cancer 2019"}
+cc_deaths_2019_plot
+```
+
+
+# TABLES
+
+The data 
+
+```{r message=FALSE}
+# Load packages 
+if(!require(pacman)) install.packages("pacman")
+pacman::p_load(htmltools, reactable)
+
+cc_table <- cc_burden_data_world_2019 %>% 
+  left_join(world_econ_data,
+            by = c("country_iso" = "iso3c")) %>%
+  rename(GDP = "NY.GDP.PCAP.KD",
+         country = country.x) %>% 
+  mutate(incidence = as.numeric(incidence)) %>% 
+  mutate(econ_status = case_when(
+    as.numeric(GDP) >= 13845 ~ "High income",
+    as.numeric(GDP) < 13845 & as.numeric(GDP) >= 4256 ~ "Upper middle income",
+    as.numeric(GDP) < 4256 & as.numeric(GDP) >= 1086 ~ "Lower middle income",
+    TRUE ~ "Low income")) %>%
+  mutate("Incidence rate" = as.numeric(incidence),
+         "Mortality rate" = as.numeric(deaths),
+         Country = country,
+         "GDP Status" = econ_status) %>% 
+  select(Country, "Incidence rate", "Mortality rate", "GDP Status" )
+
+htmltools::browsable(
+  tagList(
+    reactable(cc_table, 
+              elementId = "cc-tab", 
+              searchable = T, 
+              filterable = T), 
+    
+tags$button("Download as CSV", 
+            onclick = "Cervical_cancer_burden.downloadDataCSV('cc-tab')")
+  )
+)
+```
+
+
+
+
+
+
